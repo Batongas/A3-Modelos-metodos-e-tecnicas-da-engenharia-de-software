@@ -84,13 +84,10 @@ class MeuApp extends StatelessWidget {
         Locale('en', 'US'),
       ],
       locale: const Locale('pt', 'BR'),
-
       home: const HomePage(),
     );
   }
 }
-
-
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -120,9 +117,34 @@ class _HomePageState extends State<HomePage> {
   void _salvarPlantas() async {
     final prefs = await SharedPreferences.getInstance();
     final List<Map<String, dynamic>> plantasJson =
-    minhasPlantas.map((planta) => planta.toJson()).toList();
+        minhasPlantas.map((planta) => planta.toJson()).toList();
     final String plantasString = jsonEncode(plantasJson);
     await prefs.setString('minhas_plantas_key', plantasString);
+  }  
+
+  void _processarResultadoNavegacao(Map? resultado) {
+    if (resultado == null) return;
+
+    final planta = resultado['planta'] as Planta;
+    final index = resultado['index'] as int?;
+
+    setState(() {
+      if (index != null) {
+        minhasPlantas[index] = planta;
+      } else {
+        minhasPlantas.add(planta);
+      }
+    });
+    _salvarPlantas();
+  }
+
+  void _navegarParaCadastro() async {
+    final resultado = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const CadastroPlantaPage()),
+    );
+    if (!mounted) return;
+    _processarResultadoNavegacao(resultado);
   }
 
   @override
@@ -135,51 +157,60 @@ class _HomePageState extends State<HomePage> {
         itemCount: minhasPlantas.length,
         itemBuilder: (context, index) {
           final planta = minhasPlantas[index];
-          return ListTile(
-            title: Text(planta.nome),
-            subtitle: Text(planta.especie),
-            leading: Icon(Icons.local_florist, color: Colors.green[600]),
-            trailing:
-            const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => DetalhePlantaPage(planta: planta),
-                ),
+          return Dismissible(
+            key: Key(planta.nome + index.toString()),
+            direction: DismissDirection.startToEnd,
+            onDismissed: (direction) {
+              setState(() {
+                minhasPlantas.removeAt(index);
+              });
+              _salvarPlantas();
+
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${planta.nome} excluída')),
               );
             },
+            background: Container(
+              color: Colors.red,
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 20.0),
+              child: const Icon(Icons.delete, color: Colors.white),
+            ),
+            child: ListTile(
+              title: Text(planta.nome),
+              subtitle: Text(planta.especie),
+              leading: Icon(Icons.local_florist, color: Colors.green[600]),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
+              onTap: () async {
+                final resultado = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        DetalhePlantaPage(planta: planta, index: index),
+                  ),
+                );
+                 if (!mounted) return;
+                _processarResultadoNavegacao(resultado);
+              },
+            ),
           );
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          _navegarParaCadastro(context);
-        },
+        onPressed: _navegarParaCadastro,
         child: const Icon(Icons.add),
       ),
     );
   }
-
-  void _navegarParaCadastro(BuildContext context) async {
-    final novaPlanta = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const CadastroPlantaPage()),
-    );
-
-    if (novaPlanta != null) {
-      setState(() {
-        minhasPlantas.add(novaPlanta);
-      });
-      _salvarPlantas();
-    }
-  }
 }
 
-
-
 class CadastroPlantaPage extends StatefulWidget {
-  const CadastroPlantaPage({super.key});
+  final Planta? plantaParaEditar;
+  final int? indexParaEditar;
+
+  const CadastroPlantaPage(
+      {super.key, this.plantaParaEditar, this.indexParaEditar});
 
   @override
   State<CadastroPlantaPage> createState() => _CadastroPlantaPageState();
@@ -191,25 +222,49 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
   final _regaController = TextEditingController();
   final _solController = TextEditingController();
 
-
-  // Variáveis para guardar as datas que o usuário selecionar
   DateTime? _dataAdubacao;
   DateTime? _dataTrocaTerra;
   final DateFormat _formatadorData = DateFormat('dd/MM/yyyy');
 
-  // Método para mostrar o calendário pop-up (DatePicker)
+  @override
+  void initState() {
+    super.initState();
+    if (widget.plantaParaEditar != null) {
+      final planta = widget.plantaParaEditar!;
+      _nomeController.text = planta.nome;
+      _especieController.text = planta.especie;
+      _regaController.text = planta.frequenciaRega.toString();
+      _solController.text = planta.horasSol.toString();
+
+      if (planta.proximaAdubacao.isAfter(DateTime(1970))) {
+        _dataAdubacao = planta.proximaAdubacao;
+      }
+      if (planta.proximaTrocaTerra.isAfter(DateTime(1970))) {
+        _dataTrocaTerra = planta.proximaTrocaTerra;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _nomeController.dispose();
+    _especieController.dispose();
+    _regaController.dispose();
+    _solController.dispose();
+    super.dispose();
+  }
+
   Future<void> _selecionarData(BuildContext context,
       {required bool isAdubacao}) async {
     final DateTime? dataSelecionada = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
-      firstDate: DateTime.now(), // Não pode selecionar data no passado
+      firstDate: DateTime.now(),
       lastDate: DateTime(2101),
       locale: const Locale('pt', 'BR'),
     );
 
     if (dataSelecionada != null) {
-      // Atualiza a tela com a data selecionada
       setState(() {
         if (isAdubacao) {
           _dataAdubacao = dataSelecionada;
@@ -220,14 +275,11 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
     }
   }
 
-
   void _salvarPlanta() {
     final nome = _nomeController.text;
     final especie = _especieController.text;
     final rega = int.tryParse(_regaController.text) ?? 0;
     final sol = int.tryParse(_solController.text) ?? 0;
-
-    // Se o usuário não selecionou uma data, usamos uma data padrão (antiga)
     final adubacao = _dataAdubacao ?? DateTime(1970);
     final trocaTerra = _dataTrocaTerra ?? DateTime(1970);
 
@@ -235,7 +287,7 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
       return;
     }
 
-    final novaPlanta = Planta(
+    final plantaAtualizada = Planta(
       nome: nome,
       especie: especie,
       frequenciaRega: rega,
@@ -243,14 +295,19 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
       proximaAdubacao: adubacao,
       proximaTrocaTerra: trocaTerra,
     );
-    Navigator.pop(context, novaPlanta);
+
+    Navigator.pop(context, {
+      'planta': plantaAtualizada,
+      'index': widget.indexParaEditar,
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final isEditing = widget.plantaParaEditar != null;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cadastrar Nova Planta'),
+        title: Text(isEditing ? 'Editar Planta' : 'Cadastrar Nova Planta'),
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -259,30 +316,33 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
             children: [
               TextField(
                 controller: _nomeController,
-                decoration: const InputDecoration(labelText: 'Nome da Planta (Apelido)'),
+                decoration:
+                    const InputDecoration(labelText: 'Nome da Planta (Apelido)'),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: _especieController,
-                decoration: const InputDecoration(labelText: 'Espécie (Ex: Samambaia)'),
+                decoration:
+                    const InputDecoration(labelText: 'Espécie (Ex: Samambaia)'),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: _regaController,
-                decoration: const InputDecoration(labelText: 'Frequência de Rega (dias)'),
+                decoration:
+                    const InputDecoration(labelText: 'Frequência de Rega (dias)'),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: _solController,
-                decoration: const InputDecoration(labelText: 'Horas de Sol (por dia)'),
+                decoration:
+                    const InputDecoration(labelText: 'Horas de Sol (por dia)'),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 20),
-
-              const Text('Próximos Cuidados:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('Próximos Cuidados:',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -298,7 +358,6 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
                   ),
                 ],
               ),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -309,12 +368,12 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
                     style: const TextStyle(fontSize: 16),
                   ),
                   TextButton(
-                    onPressed: () => _selecionarData(context, isAdubacao: false),
+                    onPressed: () =>
+                        _selecionarData(context, isAdubacao: false),
                     child: const Text('Selecionar Data'),
                   ),
                 ],
               ),
-
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _salvarPlanta,
@@ -328,10 +387,35 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
   }
 }
 
-
-class DetalhePlantaPage extends StatelessWidget {
+class DetalhePlantaPage extends StatefulWidget {
   final Planta planta;
-  const DetalhePlantaPage({super.key, required this.planta});
+  final int index;
+
+  const DetalhePlantaPage(
+      {super.key, required this.planta, required this.index});
+
+  @override
+  State<DetalhePlantaPage> createState() => _DetalhePlantaPageState();
+}
+
+class _DetalhePlantaPageState extends State<DetalhePlantaPage> {
+  void _navegarParaEdicao() async {
+    final resultado = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CadastroPlantaPage(
+          plantaParaEditar: widget.planta,
+          indexParaEditar: widget.index,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (resultado != null) {
+      Navigator.pop(context, resultado);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -339,7 +423,13 @@ class DetalhePlantaPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(planta.nome),
+        title: Text(widget.planta.nome),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: _navegarParaEdicao,
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -347,78 +437,69 @@ class DetalhePlantaPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Espécie: ${planta.especie}',
+              'Espécie: ${widget.planta.especie}',
               style: TextStyle(
                   fontSize: 18,
                   fontStyle: FontStyle.italic,
                   color: Colors.grey[700]),
             ),
-
             const SizedBox(height: 20),
-
             const Text(
               'Regar a cada:',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              planta.frequenciaRega > 0
-                  ? '${planta.frequenciaRega} dias'
+              widget.planta.frequenciaRega > 0
+                  ? '${widget.planta.frequenciaRega} dias'
                   : 'Rega não especificada',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.frequenciaRega > 0
+                  color: widget.planta.frequenciaRega > 0
                       ? Colors.blue[700]
                       : Colors.grey[600]),
             ),
-
             const SizedBox(height: 20),
-
             const Text(
               'Necessidade de sol:',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              planta.horasSol > 0
-                  ? '${planta.horasSol} horas por dia'
+              widget.planta.horasSol > 0
+                  ? '${widget.planta.horasSol} horas por dia'
                   : 'Sol não especificado',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.horasSol > 0
+                  color: widget.planta.horasSol > 0
                       ? Colors.orange[700]
                       : Colors.grey[600]),
             ),
-
             const SizedBox(height: 20),
-
             const Text(
               'Próxima Adubação:',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              planta.proximaAdubacao.isAfter(DateTime(1971))
-                  ? formatadorData.format(planta.proximaAdubacao)
+              widget.planta.proximaAdubacao.isAfter(DateTime(1971))
+                  ? formatadorData.format(widget.planta.proximaAdubacao)
                   : 'Não especificado',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.proximaAdubacao.isAfter(DateTime(1971))
+                  color: widget.planta.proximaAdubacao.isAfter(DateTime(1971))
                       ? Colors.brown[700]
                       : Colors.grey[600]),
             ),
-
             const SizedBox(height: 20),
-
-            // Info de Troca de Terra
             const Text(
               'Próxima Troca de Terra:',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              planta.proximaTrocaTerra.isAfter(DateTime(1971))
-                  ? formatadorData.format(planta.proximaTrocaTerra)
+              widget.planta.proximaTrocaTerra.isAfter(DateTime(1971))
+                  ? formatadorData.format(widget.planta.proximaTrocaTerra)
                   : 'Não especificado',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.proximaTrocaTerra.isAfter(DateTime(1971))
+                  color: widget.planta.proximaTrocaTerra.isAfter(DateTime(1971))
                       ? Colors.black87
                       : Colors.grey[600]),
             ),
