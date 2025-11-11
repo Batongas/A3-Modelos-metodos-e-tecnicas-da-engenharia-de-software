@@ -21,6 +21,9 @@ const String PLANT_ID_SECRET = 'EOaxG11bycA8jXpbtc8yajFSA06mYTdspVIQPdF7j8Opxa3q
 const String API_URL_PLANT_ID = 'https://plant.id/api/v3/identification';
 
 
+const String PERENUAL_KEY = 'sk-Z2Xg69128e76c44b113423'; 
+const String PERENUAL_URL = 'https://perenual.com/api/species-care-guide-list';
+
 // CLASSE MODELO (PLANTAS) - FINAL
 // -------------------------------------------------------------------
 class Planta {
@@ -379,16 +382,18 @@ class CadastroPlantaPage extends StatefulWidget {
 }
 
 class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
+  // Controladores de Texto
   final _nomeController = TextEditingController();
   final _especieController = TextEditingController();
   final _regaController = TextEditingController();
   final _solController = TextEditingController();
 
-  // Variável para controlar o estado de carregamento da API (NOVO)
+  // Variável para controlar o estado de carregamento da API
   bool _estaIdentificando = false; 
 
   DateTime? _dataAdubacao;
   DateTime? _dataTrocaTerra;
+  DateTime? _dataProximaRega;
   final DateFormat _formatadorData = DateFormat('dd/MM/yyyy HH:mm'); 
 
   @override
@@ -402,7 +407,10 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
       _regaController.text = widget.plantaParaEditar!.frequenciaRega.toString();
       _solController.text = widget.plantaParaEditar!.horasSol.toString();
       
-      // Usa null se for a data padrão (1970)
+      _dataProximaRega = widget.plantaParaEditar!.proximaRega.isAfter(DateTime(1971)) 
+          ? widget.plantaParaEditar!.proximaRega 
+          : null;
+
       _dataAdubacao = widget.plantaParaEditar!.proximaAdubacao.isAfter(DateTime(1971)) 
           ? widget.plantaParaEditar!.proximaAdubacao 
           : null;
@@ -412,91 +420,110 @@ class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
     }
   }
 
-  // MÉTODO DE RECONHECIMENTO DE IMAGEM (API Plant.id v3)
-  // Em: class _CadastroPlantaPageState
+  // MÉTODO DE RECONHECIMENTO DE IMAGEM (API Plant.id v3 + Perenual)
+  Future<void> _identificarPlanta() async {
+    // 1. Mostrar "carregando"
+    setState(() {
+      _estaIdentificando = true;
+    });
 
-Future<void> _identificarPlanta() async {
-  // 1. Mostrar "carregando"
-  setState(() {
-    _estaIdentificando = true;
-  });
+    // 2. Tentar pegar a foto
+    final ImagePicker picker = ImagePicker();
+    final XFile? foto = await picker.pickImage(source: ImageSource.camera);
 
-  // 2. Tentar pegar a foto (Câmera)
-  final ImagePicker picker = ImagePicker();
-  final XFile? foto = await picker.pickImage(source: ImageSource.camera);
+    if (foto == null) {
+      setState(() { _estaIdentificando = false; });
+      return; // Usuário cancelou
+    }
 
-  if (foto == null) {
-    setState(() { _estaIdentificando = false; });
-    return; // Usuário cancelou
-  }
-
-  try {
-    // --- NOVO MÉTODO: Usando Multipart/form-data ---
-
-    // 3. Criar a requisição multipart
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse(API_URL_PLANT_ID), // URL: .../identification
-    );
-
-    // 4. Adicionar a Autenticação (A CHAVE) no Header
-    // (Conforme a documentação pede)
-    request.headers['Api-Key'] = PLANT_ID_SECRET;
-
-    // 5. Adicionar os "text fields" (os atributos)
-    // A documentação diz: "attributes are sent in text fields"
-    // (O 'organs' é enviado como uma lista de campos)
-    //request.fields['organs'] = 'leaf';
-    // request.fields['organs'] = 'flower'; // (Você pode adicionar mais se quiser)
-
-    // 6. Adicionar o arquivo (a imagem)
-    // A documentação diz: "images are sent as files"
-    request.files.add(await http.MultipartFile.fromPath('images', foto.path));
-
-    // 7. Enviar a requisição
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-    
-    // --- FIM DO NOVO MÉTODO ---
-
-    // 8. Processar a resposta 
-    if (response.statusCode == 200 || response.statusCode == 201 ) {
-      final data = jsonDecode(response.body);
+    try {
+      // --- CHAMADA 1: Identificar o NOME (Plant.id) ---
       
-      if (data['suggestions'] != null && data['suggestions'].isNotEmpty) {
-        final melhorSugestao = data['suggestions'][0]['plant_name'] ?? 'Desconhecida';
+      final request = http.MultipartRequest('POST', Uri.parse(API_URL_PLANT_ID));
+      request.headers['Api-Key'] = PLANT_ID_SECRET;
+      request.files.add(await http.MultipartFile.fromPath('images', foto.path));
+      
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      // Processar a resposta (Aceita 200 ou 201)
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
         
-        final regaDias = 7; 
-        final solHoras = 4;
+        if (data['result'] != null && 
+            data['result']['classification'] != null && 
+            data['result']['classification']['suggestions'] != null && 
+            data['result']['classification']['suggestions'].isNotEmpty) {
+          
+          // Pegamos o nome da planta
+          final sugestao = data['result']['classification']['suggestions'][0];
+          final String nomeDaPlanta = sugestao['name'] ?? 'Desconhecida';
+          
+          // --- CHAMADA 2: Buscar CUIDADOS (Perenual) ---
+          
+          final perenualResponse = await http.get(
+            Uri.parse('$PERENUAL_URL?key=$PERENUAL_KEY&q=$nomeDaPlanta')
+          );
+          
+          // Valores Padrão (caso a API Perenual falhe)
+          int regaDias = 7; 
+          int solHoras = 4;
+          DateTime proxAdubacao = DateTime.now().add(const Duration(days: 60));
+          DateTime proxTrocaTerra = DateTime.now().add(const Duration(days: 365));
 
-        setState(() {
-          _especieController.text = melhorSugestao;
-          _regaController.text = regaDias.toString();
-          _solController.text = solHoras.toString();
-        });
+          if (perenualResponse.statusCode == 200) {
+            final perenualData = jsonDecode(perenualResponse.body);
+            
+            if (perenualData['data'] != null && perenualData['data'].isNotEmpty) {
+              final dadosCuidado = perenualData['data'][0];
+              
+              // Usamos nossas funções de "tradução"
+              regaDias = _mapearRega(dadosCuidado['watering'] ?? 'Average');
+              solHoras = _mapearSol(dadosCuidado['sunlight'] ?? 'Part Shade');
+              
+              // --- ATUALIZAÇÃO AQUI ---
+              // Mapeamos os novos campos
+              proxAdubacao = _mapearAdubacao(dadosCuidado['fertilizing']);
+              proxTrocaTerra = _mapearTrocaTerra(dadosCuidado['repotting']);
+            }
+          }
+          // --- FIM DA CHAMADA 2 ---
 
+          // Preenchemos o formulário com dados das DUAS APIs
+          setState(() {
+            _especieController.text = nomeDaPlanta;
+            _regaController.text = regaDias.toString();
+            _solController.text = solHoras.toString();
+            
+            // --- ATUALIZAÇÃO AQUI ---
+            // Preenchemos os campos de data
+            _dataAdubacao = proxAdubacao.isAfter(DateTime(1971)) ? proxAdubacao : null;
+            _dataTrocaTerra = proxTrocaTerra.isAfter(DateTime(1971)) ? proxTrocaTerra : null;
+          });
+
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nenhuma planta identificada (JSON).')),
+          );
+        }
+        
       } else {
+        // Erro da API Plant.id
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nenhuma planta identificada pela Plant.id.')),
+          SnackBar(content: Text('Erro na API Plant.id (${response.statusCode}): ${response.body}')),
         );
       }
-    } else {
-      // O erro 404 deve sumir. Se der 401 ou 403, é a chave. Se der 400, é o formato.
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro na API (${response.statusCode}): ${response.body}')),
+        SnackBar(content: Text('Erro de processamento: $e')),
       );
+    } finally {
+      // Esconder o "carregando"
+      setState(() {
+        _estaIdentificando = false;
+      });
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Erro de processamento: $e')),
-    );
-  } finally {
-    // 9. Esconder o "carregando"
-    setState(() {
-      _estaIdentificando = false;
-    });
   }
-}
 
 
   // Método para mostrar o calendário e o seletor de hora
@@ -543,6 +570,7 @@ Future<void> _identificarPlanta() async {
 
 
   void _salvarPlanta() {
+    
     final nome = _nomeController.text;
     final especie = _especieController.text;
     final rega = int.tryParse(_regaController.text) ?? 0;
@@ -577,6 +605,80 @@ Future<void> _identificarPlanta() async {
       'index': widget.indexParaEditar, 
     });
   }
+
+  //
+  // --- FUNÇÕES DE MAPEAMENTO DA API PERENUAL ---
+  //
+
+  // Traduz a resposta da API de rega para dias
+  int _mapearRega(String regaApi) {
+    switch (regaApi.toLowerCase()) {
+      case 'frequent':
+        return 3; // Rega frequente a cada 3 dias
+      case 'average':
+        return 7; // Rega média a cada 7 dias
+      case 'minimum':
+        return 14; // Rega mínima a cada 14 dias
+      default:
+        return 7; // Padrão
+    }
+  }
+
+  // Traduz a resposta da API de sol para horas
+  int _mapearSol(String solApi) {
+    // A API Perenual pode retornar uma lista, pegamos o primeiro
+    String sol = solApi.toLowerCase().split(',')[0]; 
+
+    switch (sol) {
+      case 'full sun':
+        return 6; // Sol pleno = 6+ horas
+      case 'part shade':
+        return 4; // Sombra parcial = 4 horas
+      case 'filtered shade':
+      case 'shade':
+        return 2; // Sombra = 2 horas
+      default:
+        return 4; // Padrão
+    }
+  }
+
+  // Traduz a resposta da API de adubação para uma data futura
+  DateTime _mapearAdubacao(String? aduboApi) {
+    if (aduboApi == null || aduboApi.toLowerCase().contains("not required")) {
+      return DateTime(1970); // Data padrão "Não definido"
+    }
+    // Ex: "Fertilize every 4-6 weeks during growing season"
+    if (aduboApi.toLowerCase().contains("weeks")) {
+      return DateTime.now().add(const Duration(days: 30)); // 4 semanas
+    }
+    // Ex: "monthly"
+    if (aduboApi.toLowerCase().contains("monthly")) {
+      return DateTime.now().add(const Duration(days: 30));
+    }
+    // Padrão genérico se não encontrar
+    return DateTime.now().add(const Duration(days: 60)); // A cada 2 meses
+  }
+
+  // Traduz a resposta da API de troca de terra para uma data futura
+  DateTime _mapearTrocaTerra(String? trocaApi) {
+    if (trocaApi == null) {
+      return DateTime.now().add(const Duration(days: 365)); // Padrão 1 ano
+    }
+    // Ex: "Repot every 2-3 years"
+    if (trocaApi.toLowerCase().contains("2-3 years")) {
+      return DateTime.now().add(const Duration(days: 365 * 2)); // 2 anos
+    }
+    // Ex: "every year"
+    if (trocaApi.toLowerCase().contains("year")) {
+      return DateTime.now().add(const Duration(days: 365)); // 1 ano
+    }
+    // Padrão genérico
+    return DateTime.now().add(const Duration(days: 365)); // 1 ano
+  }
+
+  //
+  // --- FIM DAS FUNÇÕES DE MAPEAMENTO ---
+  //
 
   @override
   Widget build(BuildContext context) {
@@ -619,7 +721,7 @@ Future<void> _identificarPlanta() async {
               const SizedBox(height: 10),
               TextField(
                 controller: _regaController,
-                decoration: const InputDecoration(labelText: 'Frequência de Rega (dias)'),
+                decoration: const InputDecoration(labelText: 'Frequência de Rega (a cada x dias)'),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 10),
@@ -629,6 +731,26 @@ Future<void> _identificarPlanta() async {
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 20),
+
+              if (_dataProximaRega != null && _dataProximaRega!.isAfter(DateTime(1971)))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Próximo Lembrete de Rega Em:', 
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue)),
+                    Text(
+                      ' ${_formatadorData.format(_dataProximaRega!)}',
+                      style: const TextStyle(fontSize: 18, color: Colors.blueGrey),
+                    ),
+                    Text(
+                      '(Baseado em ${widget.plantaParaEditar!.frequenciaRega} dias)',
+                      style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic),
+                    ),
+                  ],
+                ),
+              ),
 
               // 3. SELETORES DE DATA/HORA
               const Text('Próximos Cuidados:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -686,13 +808,16 @@ Future<void> _identificarPlanta() async {
 // DETALHES DA PLANTA
 // -------------------------------------------------------------------
 
+// Em seu main.dart, substitua a classe DetalhePlantaPage:
+
 class DetalhePlantaPage extends StatelessWidget {
   final Planta planta;
   const DetalhePlantaPage({super.key, required this.planta});
 
   @override
   Widget build(BuildContext context) {
-    final DateFormat formatadorData = DateFormat('dd/MM/yyyy HH:mm');
+    // Usamos o formatador de data e hora para exibir corretamente
+    final DateFormat formatadorDataHora = DateFormat('dd/MM/yyyy HH:mm'); 
 
     return Scaffold(
       appBar: AppBar(
@@ -713,23 +838,39 @@ class DetalhePlantaPage extends StatelessWidget {
 
             const SizedBox(height: 20),
 
+            // NOVO CAMPO: Próxima Rega Automática
             const Text(
-              'Regar a cada:',
+              'Próxima Rega:', // O título que você pode mudar
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              planta.proximaRega.isAfter(DateTime(1971))
+                  ? formatadorDataHora.format(planta.proximaRega)
+                  : 'Rega não especificada', // Se a frequência for 0, mostra isso
+              style: TextStyle(
+                  fontSize: 20,
+                  color: Colors.blue[700]),
+            ),
+            const SizedBox(height: 20),
+
+
+            // Regar a Cada (Frequência)
+            const Text(
+              'Frequência:', // Mudei o título para ser mais claro
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
               planta.frequenciaRega > 0
                   ? '${planta.frequenciaRega} dias'
-                  : 'Rega não especificada',
+                  : 'Não definida',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.frequenciaRega > 0
-                      ? Colors.blue[700]
-                      : Colors.grey[600]),
+                  color: Colors.blue[700]),
             ),
 
             const SizedBox(height: 20),
 
+            // Necessidade de Sol
             const Text(
               'Necessidade de sol:',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -737,46 +878,42 @@ class DetalhePlantaPage extends StatelessWidget {
             Text(
               planta.horasSol > 0
                   ? '${planta.horasSol} horas por dia'
-                  : 'Sol não especificado',
+                  : 'Não especificado',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.horasSol > 0
-                      ? Colors.orange[700]
-                      : Colors.grey[600]),
+                  color: Colors.orange[700]),
             ),
 
             const SizedBox(height: 20),
 
+            // Próxima Adubação (com hora)
             const Text(
               'Próxima Adubação:',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
               planta.proximaAdubacao.isAfter(DateTime(1971))
-                  ? formatadorData.format(planta.proximaAdubacao)
+                  ? formatadorDataHora.format(planta.proximaAdubacao)
                   : 'Não especificado',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.proximaAdubacao.isAfter(DateTime(1971))
-                      ? Colors.brown[700]
-                      : Colors.grey[600]),
+                  color: Colors.brown[700]),
             ),
 
             const SizedBox(height: 20),
 
+            // Próxima Troca de Terra (com hora)
             const Text(
               'Próxima Troca de Terra:',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
               planta.proximaTrocaTerra.isAfter(DateTime(1971))
-                  ? formatadorData.format(planta.proximaTrocaTerra)
+                  ? formatadorDataHora.format(planta.proximaTrocaTerra)
                   : 'Não especificado',
               style: TextStyle(
                   fontSize: 20,
-                  color: planta.proximaTrocaTerra.isAfter(DateTime(1971))
-                      ? Colors.black87
-                      : Colors.grey[600]),
+                  color: Colors.black87),
             ),
           ],
         ),
