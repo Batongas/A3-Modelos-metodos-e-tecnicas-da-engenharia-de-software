@@ -16,7 +16,7 @@ import 'package:http/http.dart' as http; // Para API
 import 'package:image_picker/image_picker.dart'; // Para Câmera
 
 
-// ⚠️ SUBSTITUA PELA SUA CHAVE SECRETA REAL DA PLANT.ID
+// ⚠️ CHAVE SECRETA REAL DA PLANT.ID
 const String PLANT_ID_SECRET = 'EOaxG11bycA8jXpbtc8yajFSA06mYTdspVIQPdF7j8Opxa3qd8'; 
 const String API_URL_PLANT_ID = 'https://plant.id/api/v3/identification';
 
@@ -459,7 +459,7 @@ Future<void> _identificarPlanta() async {
     
     // --- FIM DO NOVO MÉTODO ---
 
-    // 8. Processar a resposta (igual a antes)
+    // 8. Processar a resposta 
     if (response.statusCode == 200 || response.statusCode == 201 ) {
       final data = jsonDecode(response.body);
       
