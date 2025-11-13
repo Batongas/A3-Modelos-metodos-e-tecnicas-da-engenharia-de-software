@@ -1,31 +1,30 @@
-// Importa o pacote principal do Flutter para construir a interface
+// --------------------------------------------------------------
+// 🌿 DIGITAL GARDEN — UI MODERNA + FUNCIONALIDADES
+// --------------------------------------------------------------
+
 import 'package:flutter/material.dart';
-// Importa os pacotes para salvar (SharedPreferences) e para converter texto (JSON)
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-// Importa o pacote para formatar datas (ex: dd/MM/yyyy)
 import 'package:intl/intl.dart';
-// Importa os pacotes para o DatePicker funcionar em Português
 import 'package:flutter_localizations/flutter_localizations.dart';
-
-// Imports necessários para Notificações, Timezone, Câmera e API
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:http/http.dart' as http; // Para API
-import 'package:image_picker/image_picker.dart'; // Para Câmera
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 
-
-// ⚠️ CHAVE SECRETA REAL DA PLANT.ID
-const String PLANT_ID_SECRET = 'EOaxG11bycA8jXpbtc8yajFSA06mYTdspVIQPdF7j8Opxa3qd8'; 
+// --------------------------------------------------------------
+// 🔐 CHAVES DE API
+// --------------------------------------------------------------
+const String PLANT_ID_SECRET = 'EOaxG11bycA8jXpbtc8yajFSA06mYTdspVIQPdF7j8Opxa3qd8';
 const String API_URL_PLANT_ID = 'https://plant.id/api/v3/identification';
 
-
-const String PERENUAL_KEY = 'sk-Z2Xg69128e76c44b113423'; 
+const String PERENUAL_KEY = 'sk-Z2Xg69128e76c44b113423';
 const String PERENUAL_URL = 'https://perenual.com/api/species-care-guide-list';
 
-// CLASSE MODELO (PLANTAS) - FINAL
-// -------------------------------------------------------------------
+// --------------------------------------------------------------
+// 🌱 MODELO DE DADOS (PLANTA)
+// --------------------------------------------------------------
 class Planta {
   final String id;
   String nome;
@@ -44,129 +43,119 @@ class Planta {
     required this.horasSol,
     required this.proximaAdubacao,
     required this.proximaTrocaTerra,
-    
-    DateTime? proximaRega, 
-  }) : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
-       proximaRega = proximaRega ?? DateTime(1970);
+    DateTime? proximaRega,
+  })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        proximaRega = proximaRega ?? DateTime(1970);
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'nome': nome,
+        'especie': especie,
+        'frequenciaRega': frequenciaRega,
+        'horasSol': horasSol,
+        'proximaRega': proximaRega.toIso8601String(),
+        'proximaAdubacao': proximaAdubacao.toIso8601String(),
+        'proximaTrocaTerra': proximaTrocaTerra.toIso8601String(),
+      };
 
-  //  Converter planta para JSON
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'nome': nome,
-      'especie': especie,
-      'frequenciaRega': frequenciaRega,
-      'horasSol': horasSol,
-      'proximaRega': proximaRega.toIso8601String(),
-      'proximaAdubacao': proximaAdubacao.toIso8601String(),
-      'proximaTrocaTerra': proximaTrocaTerra.toIso8601String(),
-    };
-  }
-
-  // Criar planta a partir do JSON
   factory Planta.fromJson(Map<String, dynamic> json) {
+    DateTime _parseDate(dynamic v) {
+      if (v == null) return DateTime(1970);
+      try {
+        return DateTime.parse(v.toString());
+      } catch (_) {
+        return DateTime(1970);
+      }
+    }
+
+    int _parseInt(dynamic v) {
+      if (v is int) return v;
+      return int.tryParse(v.toString()) ?? 0;
+    }
+
     return Planta(
       id: json['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-      nome: json['nome'],
-      especie: json['especie'],
-      frequenciaRega: (json['frequenciaRega'] is int) ? json['frequenciaRega'] : int.tryParse(json['frequenciaRega'].toString()) ?? 0,
-      horasSol: (json['horasSol'] is int) ? json['horasSol'] : int.tryParse(json['horasSol'].toString()) ?? 0,
-      
-      proximaRega: json['proximaRega'] != null 
-          ? DateTime.parse(json['proximaRega'])
-          : null,
-      proximaAdubacao: json['proximaAdubacao'] != null
-          ? DateTime.parse(json['proximaAdubacao'])
-          : DateTime(1970),
-      proximaTrocaTerra: json['proximaTrocaTerra'] != null
-          ? DateTime.parse(json['proximaTrocaTerra'])
-          : DateTime(1970),
+      nome: json['nome'] ?? '',
+      especie: json['especie'] ?? '',
+      frequenciaRega: _parseInt(json['frequenciaRega']),
+      horasSol: _parseInt(json['horasSol']),
+      proximaRega: _parseDate(json['proximaRega']),
+      proximaAdubacao: _parseDate(json['proximaAdubacao']),
+      proximaTrocaTerra: _parseDate(json['proximaTrocaTerra']),
     );
   }
 }
 
-// -------------------------------------------------------------------
-// SERVIÇO DE NOTIFICAÇÃO (COMPLETO)
-// -------------------------------------------------------------------
-
+// --------------------------------------------------------------
+// 🔔 SERVIÇO DE NOTIFICAÇÃO
+// --------------------------------------------------------------
 class NotificationService {
-  static final FlutterLocalNotificationsPlugin _notificationsPlugin =
+  static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
   static Future<void> init() async {
     tz.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('America/Sao_Paulo')); 
+    tz.setLocalLocation(tz.getLocation('America/Sao_Paulo'));
 
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const DarwinInitializationSettings initializationSettingsIOS =
-      DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
     );
 
-    const InitializationSettings initializationSettings = InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsIOS, 
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: iosInit,
     );
 
-    await _notificationsPlugin.initialize(initializationSettings);
-    
-    // CORREÇÃO CRUCIAL: Solicita permissão de notificação em tempo de execução para Android 13+
-    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-        _notificationsPlugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-
-    if (androidImplementation != null) {
-        await androidImplementation.requestNotificationsPermission();
+    await _plugin.initialize(initSettings);
+    final androidImpl = _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl != null) {
+      await androidImpl.requestNotificationsPermission();
     }
   }
 
-  static Future<void> scheduleNotification(
-      int id, String title, String body, DateTime scheduledDate) async {
-    
-    if (scheduledDate.isBefore(DateTime.now())) return; 
+  static Future<void> schedule(
+      int id, String title, String body, DateTime date) async {
+    if (date.isBefore(DateTime.now())) return;
 
-    await _notificationsPlugin.zonedSchedule(
+    await _plugin.zonedSchedule(
       id,
       title,
       body,
-      tz.TZDateTime.from(scheduledDate, tz.local), 
+      tz.TZDateTime.from(date, tz.local),
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'plant_channel_id', 
-          'Lembretes do Jardim', 
-          channelDescription: 'Canal para lembretes de plantas.',
+          'plant_channel',
+          'Lembretes do Jardim',
+          channelDescription: 'Notificações automáticas das plantas',
           importance: Importance.max,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
         ),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
   }
 
-  static Future<void> cancelNotification(int id) async {
-    await _notificationsPlugin.cancel(id);
-  }
+  static Future<void> cancel(int id) async => _plugin.cancel(id);
 }
 
-
-// -------------------------------------------------------------------
-// PONTO DE ENTRADA E WIDGET PRINCIPAL
-// -------------------------------------------------------------------
-
+// --------------------------------------------------------------
+// 🚀 MAIN
+// --------------------------------------------------------------
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await NotificationService.init(); 
+  await NotificationService.init();
   runApp(const MeuApp());
 }
 
+// --------------------------------------------------------------
+// 🎨 APP PRINCIPAL + TEMA
+// --------------------------------------------------------------
 class MeuApp extends StatelessWidget {
   const MeuApp({super.key});
 
@@ -174,29 +163,50 @@ class MeuApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Digital Garden',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.green,
-        useMaterial3: true,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF00C676),
+          secondary: Color(0xFF1DE9B6),
+          surface: Color(0xFF1C1C1E),
+          onPrimary: Colors.white,
+          onSurface: Colors.white,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1C1C1E),
+          elevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(fontSize: 16, color: Color(0xFFDDE6D9)),
+          titleLarge: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
       ),
+      home: const HomePage(),
+      supportedLocales: const [Locale('pt', 'BR')],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      supportedLocales: const [
-        Locale('pt', 'BR'),
-        Locale('en', 'US'),
-      ],
-      locale: const Locale('pt', 'BR'),
-      home: const HomePage(),
     );
   }
 }
 
-// -------------------------------------------------------------------
-// HOMEPAGE - LISTA DE PLANTAS, DELETAR E EDITAR
-// -------------------------------------------------------------------
-
+// --------------------------------------------------------------
+// 🏡 HOMEPAGE — PLANTAS + MENU INFERIOR
+// --------------------------------------------------------------
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -206,7 +216,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<Planta> minhasPlantas = [];
-  final DateFormat _formatadorDataHora = DateFormat('dd/MM/yyyy HH:mm'); 
+  final DateFormat _fmt = DateFormat('dd/MM/yyyy HH:mm');
+  int _selectedIndex = 0;
 
   @override
   void initState() {
@@ -214,167 +225,381 @@ class _HomePageState extends State<HomePage> {
     _carregarPlantas();
   }
 
-  void _carregarPlantas() async {
+  Future<void> _carregarPlantas() async {
     final prefs = await SharedPreferences.getInstance();
-    final String plantasString = prefs.getString('minhas_plantas_key') ?? '[]';
-    final List<dynamic> plantasJson = jsonDecode(plantasString);
+    final data = prefs.getString('minhas_plantas_key') ?? '[]';
     setState(() {
-      minhasPlantas = plantasJson.map((json) => Planta.fromJson(json)).toList();
+      minhasPlantas =
+          (jsonDecode(data) as List).map((e) => Planta.fromJson(e)).toList();
     });
   }
 
-  void _salvarPlantas() async {
+  Future<void> _salvarPlantas() async {
     final prefs = await SharedPreferences.getInstance();
-    final List<Map<String, dynamic>> plantasJson =
-    minhasPlantas.map((planta) => planta.toJson()).toList();
-    final String plantasString = jsonEncode(plantasJson);
-    await prefs.setString('minhas_plantas_key', plantasString);
+    await prefs.setString(
+      'minhas_plantas_key',
+      jsonEncode(minhasPlantas.map((e) => e.toJson()).toList()),
+    );
   }
 
-  // Lógica unificada para Adicionar ou Editar
-  void _adicionarOuEditarPlanta({Planta? plantaParaEditar, int? indexParaEditar}) async {
+  Future<void> _adicionarOuEditarPlanta(
+      {Planta? plantaParaEditar, int? indexParaEditar}) async {
     final resultado = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => CadastroPlantaPage(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (_, __, ___) => CadastroPlantaPage(
           plantaParaEditar: plantaParaEditar,
-          indexParaEditar: indexParaEditar, 
+          indexParaEditar: indexParaEditar,
         ),
+        transitionsBuilder: (_, animation, __, child) {
+          final offset = Tween<Offset>(
+            begin: const Offset(0.1, 0.05),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          ));
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(position: offset, child: child),
+          );
+        },
       ),
     );
 
-    // Verifica se o resultado é válido e contém a Planta
-    if (resultado != null && resultado is Map && resultado.containsKey('planta')) {
-      
+    if (resultado != null && resultado is Map && resultado['planta'] is Planta) {
       final Planta plantaSalva = resultado['planta'] as Planta;
-      final int? index = indexParaEditar; 
+      final int idHash = plantaSalva.id.hashCode;
 
-      // Recalcula a data da próxima rega (X dias à frente)
-      final proximaRega = plantaSalva.frequenciaRega > 0
-          ? DateTime.now().add(Duration(days: plantaSalva.frequenciaRega))
-          : DateTime(1970);
-
-      // Cria a Planta completa final, garantindo o ID e a proximaRega atualizados
-      final plantaCompleta = Planta(
-        id: plantaParaEditar?.id ?? plantaSalva.id,
-        nome: plantaSalva.nome,
-        especie: plantaSalva.especie,
-        frequenciaRega: plantaSalva.frequenciaRega,
-        horasSol: plantaSalva.horasSol,
-        proximaAdubacao: plantaSalva.proximaAdubacao,
-        proximaTrocaTerra: plantaSalva.proximaTrocaTerra,
-        proximaRega: proximaRega,
+      // agenda notificações
+      await NotificationService.schedule(
+        idHash + 1,
+        'Hora de regar! 💧',
+        'Sua planta "${plantaSalva.nome}" precisa de água.',
+        plantaSalva.proximaRega,
+      );
+      await NotificationService.schedule(
+        idHash + 2,
+        'Hora de adubar! 🪴',
+        'Sua planta "${plantaSalva.nome}" precisa de adubo.',
+        plantaSalva.proximaAdubacao,
+      );
+      await NotificationService.schedule(
+        idHash + 3,
+        'Hora da terra! 🌑',
+        'Sua planta "${plantaSalva.nome}" precisa de terra nova.',
+        plantaSalva.proximaTrocaTerra,
       );
 
-      // Agendamento de notificações
-      final int idBase = plantaCompleta.id.hashCode;
-    
-      // Cancela as antigas e agenda as novas
-      NotificationService.cancelNotification(idBase + 1);
-      NotificationService.cancelNotification(idBase + 2);
-      NotificationService.cancelNotification(idBase + 3);
-
-      NotificationService.scheduleNotification(idBase + 1, 'Hora de regar! 💧', 'Sua planta "${plantaCompleta.nome}" precisa de água.', plantaCompleta.proximaRega);
-      NotificationService.scheduleNotification(idBase + 2, 'Hora de adubar! 🪴', 'Sua planta "${plantaCompleta.nome}" precisa de adubo.', plantaCompleta.proximaAdubacao);
-      NotificationService.scheduleNotification(idBase + 3, 'Hora da terra! 🌑', 'Sua planta "${plantaCompleta.nome}" precisa de terra nova.', plantaCompleta.proximaTrocaTerra);
-
-      // Atualiza o estado
       setState(() {
-        if (index != null) {
-          minhasPlantas[index] = plantaCompleta;
+        if (indexParaEditar != null) {
+          minhasPlantas[indexParaEditar] = plantaSalva;
         } else {
-          minhasPlantas.add(plantaCompleta);
+          minhasPlantas.add(plantaSalva);
         }
       });
-      
       _salvarPlantas();
     }
+  }
+
+  Future<void> _removerPlanta(int index) async {
+    final planta = minhasPlantas[index];
+    final idBase = planta.id.hashCode;
+
+    await NotificationService.cancel(idBase + 1);
+    await NotificationService.cancel(idBase + 2);
+    await NotificationService.cancel(idBase + 3);
+
+    setState(() => minhasPlantas.removeAt(index));
+    _salvarPlantas();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${planta.nome} removida!')),
+    );
+  }
+
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Digital Garden'),
+      appBar: AppBar(title: const Text('Digital Garden')),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: [
+          _buildListaPlantas(),
+          const PerfilPage(),
+        ],
       ),
-      body: ListView.builder(
-        itemCount: minhasPlantas.length,
-        itemBuilder: (context, index) {
-          final planta = minhasPlantas[index];
-          final String key = planta.id; 
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.local_florist_outlined),
+            label: 'Plantas',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_rounded),
+            label: 'Perfil',
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: const Color(0xFF00C676),
+        onPressed: () =>
+            _adicionarOuEditarPlanta(plantaParaEditar: null, indexParaEditar: null),
+        child: const Icon(Icons.add_rounded, size: 28),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+    );
+  }
 
-          return Dismissible(
-            key: Key(key), 
-            
-            onDismissed: (direction) {
-              final plantaRemovida = minhasPlantas[index];
-              
-              // Cancela as notificações ao remover a planta
-              final int idBase = plantaRemovida.id.hashCode;
-              NotificationService.cancelNotification(idBase + 1); 
-              NotificationService.cancelNotification(idBase + 2);
-              NotificationService.cancelNotification(idBase + 3);
+  // ------------------------------------------------------------
+  // 🌙 HOME VISUAL (header + cards + lista)
+  // ------------------------------------------------------------
+  Widget _buildListaPlantas() {
+    final temPlantas = minhasPlantas.isNotEmpty;
+    final agora = DateTime.now();
+    final dataFormatada = DateFormat('d.M.y').format(agora);
+    final horaFormatada = DateFormat('HH:mm').format(agora);
 
-              setState(() {
-                minhasPlantas.removeAt(index);
-              });
-              
-              _salvarPlantas(); 
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${plantaRemovida.nome} removida!')),
-              );
-            },
-
-            background: Container(
-              color: Colors.red[400],
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 20.0),
-              child: const Icon(Icons.delete, color: Colors.white),
-            ),
-            
-            child: ListTile(
-              title: Text(planta.nome),
-              subtitle: Text(
-                'Espécie: ${planta.especie}\nPróxima Adubação: ${planta.proximaAdubacao.isAfter(DateTime(1971)) ? _formatadorDataHora.format(planta.proximaAdubacao) : 'Não definido'}',
-                style: TextStyle(fontSize: 12),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // HEADER
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                horaFormatada,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
-              leading: Icon(Icons.local_florist, color: Colors.green[600]),
-              trailing:
-              const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
-              
-              onTap: () {
-                _adicionarOuEditarPlanta(
-                  plantaParaEditar: planta, 
-                  indexParaEditar: index,
+              Row(
+                children: [
+                  const Icon(Icons.cloud, color: Colors.white70, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    dataFormatada,
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // ícones de status
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: const [
+              Icon(Icons.cut_rounded, color: Colors.redAccent, size: 20),
+              Icon(Icons.water_drop_outlined,
+                  color: Colors.tealAccent, size: 20),
+              Icon(Icons.bug_report_outlined, color: Colors.red, size: 20),
+              Icon(Icons.grass_rounded,
+                  color: Colors.greenAccent, size: 20),
+              Icon(Icons.spa_rounded, color: Colors.green, size: 20),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          const Text(
+            'Quarto crescente',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // CARD STATUS GERAL
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Em geral',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  temPlantas
+                      ? '${minhasPlantas.length} planta(s) cadastrada(s)'
+                      : '0 planta (0 precisa de cuidados)',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C676),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                  onPressed: () => _adicionarOuEditarPlanta(
+                    plantaParaEditar: null,
+                    indexParaEditar: null,
+                  ),
+                  child: const Text(
+                    'Adicionar planta',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // BOTÃO CRIAR ESPAÇO
+          ElevatedButton.icon(
+            onPressed: () {},
+            icon:
+                const Icon(Icons.add_rounded, color: Color(0xFF00C676)),
+            label: const Text(
+              'Criar espaço',
+              style: TextStyle(
+                fontSize: 16,
+                color: Color(0xFF00C676),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF101010),
+              elevation: 0,
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(50),
+                side: const BorderSide(
+                    color: Color(0xFF00C676), width: 1.2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          // LISTA DE PLANTAS
+          if (temPlantas)
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: minhasPlantas.length,
+              itemBuilder: (context, index) {
+                final planta = minhasPlantas[index];
+                return Dismissible(
+                  key: Key(planta.id),
+                  direction: DismissDirection.endToStart,
+                  onDismissed: (_) => _removerPlanta(index),
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.red[400],
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child:
+                        const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  child: Card(
+                    color: const Color(0xFF1C1C1E),
+                    margin: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: Color(0xFF00C676),
+                        child: Icon(Icons.eco, color: Colors.white),
+                      ),
+                      title: Text(
+                        planta.nome,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          fontSize: 18,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Espécie: ${planta.especie}\nAdubar em: ${planta.proximaAdubacao.isAfter(DateTime(1971)) ? _fmt.format(planta.proximaAdubacao) : 'Não definido'}',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 14),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios,
+                          color: Colors.white54),
+                      onTap: () => _adicionarOuEditarPlanta(
+                        plantaParaEditar: planta,
+                        indexParaEditar: index,
+                      ),
+                    ),
+                  ),
                 );
               },
             ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          _adicionarOuEditarPlanta(plantaParaEditar: null, indexParaEditar: null);
-        },
-        child: const Icon(Icons.add),
+        ],
       ),
     );
   }
 }
 
-// -------------------------------------------------------------------
-// CADASTRO/EDIÇÃO DE PLANTAS
-// -------------------------------------------------------------------
+// --------------------------------------------------------------
+// 👤 PERFIL
+// --------------------------------------------------------------
+class PerfilPage extends StatelessWidget {
+  const PerfilPage({super.key});
 
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text(
+        'Meu Perfil 🌿',
+        style: TextStyle(fontSize: 18, color: Colors.white70),
+      ),
+    );
+  }
+}
+
+// --------------------------------------------------------------
+// 📋 PÁGINA DE CADASTRO / EDIÇÃO DE PLANTA
+// --------------------------------------------------------------
 class CadastroPlantaPage extends StatefulWidget {
   final Planta? plantaParaEditar;
   final int? indexParaEditar;
 
   const CadastroPlantaPage({
     super.key,
-    this.plantaParaEditar,     
-    this.indexParaEditar,      
+    this.plantaParaEditar,
+    this.indexParaEditar,
   });
 
   @override
@@ -382,538 +607,289 @@ class CadastroPlantaPage extends StatefulWidget {
 }
 
 class _CadastroPlantaPageState extends State<CadastroPlantaPage> {
-  // Controladores de Texto
-  final _nomeController = TextEditingController();
-  final _especieController = TextEditingController();
-  final _regaController = TextEditingController();
-  final _solController = TextEditingController();
+  final _nome = TextEditingController();
+  final _especie = TextEditingController();
+  final _rega = TextEditingController();
+  final _sol = TextEditingController();
 
-  // Variável para controlar o estado de carregamento da API
-  bool _estaIdentificando = false; 
-
-  DateTime? _dataAdubacao;
-  DateTime? _dataTrocaTerra;
-  DateTime? _dataProximaRega;
-  final DateFormat _formatadorData = DateFormat('dd/MM/yyyy HH:mm'); 
+  DateTime? _adubacao;
+  DateTime? _trocaTerra;
+  bool _identificando = false;
+  final DateFormat _fmt = DateFormat('dd/MM/yyyy HH:mm');
 
   @override
   void initState() {
     super.initState();
-    
-    // Preenche os campos se estiver em modo de edição
     if (widget.plantaParaEditar != null) {
-      _nomeController.text = widget.plantaParaEditar!.nome;
-      _especieController.text = widget.plantaParaEditar!.especie;
-      _regaController.text = widget.plantaParaEditar!.frequenciaRega.toString();
-      _solController.text = widget.plantaParaEditar!.horasSol.toString();
-      
-      _dataProximaRega = widget.plantaParaEditar!.proximaRega.isAfter(DateTime(1971)) 
-          ? widget.plantaParaEditar!.proximaRega 
-          : null;
-
-      _dataAdubacao = widget.plantaParaEditar!.proximaAdubacao.isAfter(DateTime(1971)) 
-          ? widget.plantaParaEditar!.proximaAdubacao 
-          : null;
-      _dataTrocaTerra = widget.plantaParaEditar!.proximaTrocaTerra.isAfter(DateTime(1971)) 
-          ? widget.plantaParaEditar!.proximaTrocaTerra 
-          : null;
+      final p = widget.plantaParaEditar!;
+      _nome.text = p.nome;
+      _especie.text = p.especie;
+      _rega.text = p.frequenciaRega.toString();
+      _sol.text = p.horasSol.toString();
+      _adubacao = p.proximaAdubacao;
+      _trocaTerra = p.proximaTrocaTerra;
     }
   }
 
-  // MÉTODO DE RECONHECIMENTO DE IMAGEM (API Plant.id v3 + Perenual)
   Future<void> _identificarPlanta() async {
-    // 1. Mostrar "carregando"
-    setState(() {
-      _estaIdentificando = true;
-    });
+    setState(() => _identificando = true);
 
-    // 2. Tentar pegar a foto
-    final ImagePicker picker = ImagePicker();
+    final picker = ImagePicker();
     final XFile? foto = await picker.pickImage(source: ImageSource.camera);
 
     if (foto == null) {
-      setState(() { _estaIdentificando = false; });
-      return; // Usuário cancelou
+      setState(() => _identificando = false);
+      return;
     }
 
     try {
-      // --- CHAMADA 1: Identificar o NOME (Plant.id) ---
-      
-      final request = http.MultipartRequest('POST', Uri.parse(API_URL_PLANT_ID));
+      final request =
+          http.MultipartRequest('POST', Uri.parse(API_URL_PLANT_ID));
       request.headers['Api-Key'] = PLANT_ID_SECRET;
-      request.files.add(await http.MultipartFile.fromPath('images', foto.path));
-      
+      request.files.add(
+          await http.MultipartFile.fromPath('images', foto.path));
+
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
-      
-      // Processar a resposta (Aceita 200 ou 201)
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
-        
-        if (data['result'] != null && 
-            data['result']['classification'] != null && 
-            data['result']['classification']['suggestions'] != null && 
-            data['result']['classification']['suggestions'].isNotEmpty) {
-          
-          // Pegamos o nome da planta
-          final sugestao = data['result']['classification']['suggestions'][0];
-          final String nomeDaPlanta = sugestao['name'] ?? 'Desconhecida';
-          
-          // --- CHAMADA 2: Buscar CUIDADOS (Perenual) ---
-          
-          final perenualResponse = await http.get(
-            Uri.parse('$PERENUAL_URL?key=$PERENUAL_KEY&q=$nomeDaPlanta')
-          );
-          
-          // Valores Padrão (caso a API Perenual falhe)
-          int regaDias = 7; 
-          int solHoras = 4;
-          DateTime proxAdubacao = DateTime.now().add(const Duration(days: 60));
-          DateTime proxTrocaTerra = DateTime.now().add(const Duration(days: 365));
-
-          if (perenualResponse.statusCode == 200) {
-            final perenualData = jsonDecode(perenualResponse.body);
-            
-            if (perenualData['data'] != null && perenualData['data'].isNotEmpty) {
-              final dadosCuidado = perenualData['data'][0];
-              
-              // Usamos nossas funções de "tradução"
-              regaDias = _mapearRega(dadosCuidado['watering'] ?? 'Average');
-              solHoras = _mapearSol(dadosCuidado['sunlight'] ?? 'Part Shade');
-              
-              // --- ATUALIZAÇÃO AQUI ---
-              // Mapeamos os novos campos
-              proxAdubacao = _mapearAdubacao(dadosCuidado['fertilizing']);
-              proxTrocaTerra = _mapearTrocaTerra(dadosCuidado['repotting']);
-            }
-          }
-          // --- FIM DA CHAMADA 2 ---
-
-          // Preenchemos o formulário com dados das DUAS APIs
-          setState(() {
-            _especieController.text = nomeDaPlanta;
-            _regaController.text = regaDias.toString();
-            _solController.text = solHoras.toString();
-            
-            // --- ATUALIZAÇÃO AQUI ---
-            // Preenchemos os campos de data
-            _dataAdubacao = proxAdubacao.isAfter(DateTime(1971)) ? proxAdubacao : null;
-            _dataTrocaTerra = proxTrocaTerra.isAfter(DateTime(1971)) ? proxTrocaTerra : null;
-          });
-
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Nenhuma planta identificada (JSON).')),
-          );
-        }
-        
-      } else {
-        // Erro da API Plant.id
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro na API Plant.id (${response.statusCode}): ${response.body}')),
-        );
+        final sugestao =
+            data['result']?['classification']?['suggestions']?[0];
+        final nome = sugestao?['name'] ?? 'Desconhecida';
+        setState(() => _especie.text = nome);
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro de processamento: $e')),
-      );
+    } catch (_) {
+      // se der erro só ignora e mantém tela
     } finally {
-      // Esconder o "carregando"
-      setState(() {
-        _estaIdentificando = false;
-      });
+      setState(() => _identificando = false);
     }
   }
 
-
-  // Método para mostrar o calendário e o seletor de hora
-  Future<void> _selecionarData(BuildContext context,
-      {required bool isAdubacao}) async {
-    
-    // 1. SELETOR DE DATA
-    final DateTime? dataSelecionada = await showDatePicker(
+  Future<void> _selecionarData({required bool isAdubacao}) async {
+    final now = DateTime.now();
+    final data = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime.now(), 
-      lastDate: DateTime(2101),
+      initialDate: now,
+      firstDate: now,
+      lastDate: DateTime(2100),
       locale: const Locale('pt', 'BR'),
     );
+    if (data == null) return;
 
-    if (dataSelecionada == null) return; 
-
-    // 2. SELETOR DE HORA
-    final TimeOfDay? horaSelecionada = await showTimePicker(
+    final hora = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.now(),
+      initialTime: TimeOfDay.fromDateTime(now),
+    );
+    if (hora == null) return;
+
+    final combinado = DateTime(
+      data.year,
+      data.month,
+      data.day,
+      hora.hour,
+      hora.minute,
     );
 
-    if (horaSelecionada == null) return; 
-
-    // 3. COMBINAR DATA E HORA
-    final DateTime dataCompleta = DateTime(
-      dataSelecionada.year,
-      dataSelecionada.month,
-      dataSelecionada.day,
-      horaSelecionada.hour,
-      horaSelecionada.minute,
-    );
-
-    // 4. Atualiza o estado
     setState(() {
       if (isAdubacao) {
-        _dataAdubacao = dataCompleta;
+        _adubacao = combinado;
       } else {
-        _dataTrocaTerra = dataCompleta;
+        _trocaTerra = combinado;
       }
     });
   }
 
+  void _salvar() {
+    if (_nome.text.isEmpty || _especie.text.isEmpty) return;
 
-  void _salvarPlanta() {
-    
-    final nome = _nomeController.text;
-    final especie = _especieController.text;
-    final rega = int.tryParse(_regaController.text) ?? 0;
-    final sol = int.tryParse(_solController.text) ?? 0;
+    final freqRega = int.tryParse(_rega.text) ?? 0;
+    final horasSol = int.tryParse(_sol.text) ?? 0;
 
-    // Se o usuário não selecionou uma data, usamos uma data padrão (1970)
-    final adubacao = _dataAdubacao ?? DateTime(1970);
-    final trocaTerra = _dataTrocaTerra ?? DateTime(1970);
+    final proximaRega = freqRega > 0
+        ? DateTime.now().add(Duration(days: freqRega))
+        : DateTime(1970);
 
-    if (nome.isEmpty || especie.isEmpty) {
-      return;
-    }
-    
-    // Reutiliza o ID existente para a Planta (ou cria um novo se for adição)
-    final String idExistente = widget.plantaParaEditar?.id ?? DateTime.now().millisecondsSinceEpoch.toString();
+    final planta = Planta(
+      id: widget.plantaParaEditar?.id,
+      nome: _nome.text,
+      especie: _especie.text,
+      frequenciaRega: freqRega,
+      horasSol: horasSol,
+      proximaRega: proximaRega,
+      proximaAdubacao:
+          _adubacao ?? DateTime(1970),
+      proximaTrocaTerra:
+          _trocaTerra ?? DateTime(1970),
+    );
 
-    // Nota: proximaRega é um placeholder. A HomePage fará o cálculo final.
-    final novaPlanta = Planta(
-      id: idExistente, 
-      nome: nome,
-      especie: especie,
-      frequenciaRega: rega,
-      horasSol: sol,
-      proximaAdubacao: adubacao,
-      proximaTrocaTerra: trocaTerra,
-      proximaRega: DateTime.now() // Placeholder
-    ); 
-    
-    // Retorna a planta salva e o índice para a HomePage
-    Navigator.pop(context, {
-      'planta': novaPlanta, 
-      'index': widget.indexParaEditar, 
-    });
+    Navigator.pop(context, {'planta': planta});
   }
-
-  //
-  // --- FUNÇÕES DE MAPEAMENTO DA API PERENUAL ---
-  //
-
-  // Traduz a resposta da API de rega para dias
-  int _mapearRega(String regaApi) {
-    switch (regaApi.toLowerCase()) {
-      case 'frequent':
-        return 3; // Rega frequente a cada 3 dias
-      case 'average':
-        return 7; // Rega média a cada 7 dias
-      case 'minimum':
-        return 14; // Rega mínima a cada 14 dias
-      default:
-        return 7; // Padrão
-    }
-  }
-
-  // Traduz a resposta da API de sol para horas
-  int _mapearSol(String solApi) {
-    // A API Perenual pode retornar uma lista, pegamos o primeiro
-    String sol = solApi.toLowerCase().split(',')[0]; 
-
-    switch (sol) {
-      case 'full sun':
-        return 6; // Sol pleno = 6+ horas
-      case 'part shade':
-        return 4; // Sombra parcial = 4 horas
-      case 'filtered shade':
-      case 'shade':
-        return 2; // Sombra = 2 horas
-      default:
-        return 4; // Padrão
-    }
-  }
-
-  // Traduz a resposta da API de adubação para uma data futura
-  DateTime _mapearAdubacao(String? aduboApi) {
-    if (aduboApi == null || aduboApi.toLowerCase().contains("not required")) {
-      return DateTime(1970); // Data padrão "Não definido"
-    }
-    // Ex: "Fertilize every 4-6 weeks during growing season"
-    if (aduboApi.toLowerCase().contains("weeks")) {
-      return DateTime.now().add(const Duration(days: 30)); // 4 semanas
-    }
-    // Ex: "monthly"
-    if (aduboApi.toLowerCase().contains("monthly")) {
-      return DateTime.now().add(const Duration(days: 30));
-    }
-    // Padrão genérico se não encontrar
-    return DateTime.now().add(const Duration(days: 60)); // A cada 2 meses
-  }
-
-  // Traduz a resposta da API de troca de terra para uma data futura
-  DateTime _mapearTrocaTerra(String? trocaApi) {
-    if (trocaApi == null) {
-      return DateTime.now().add(const Duration(days: 365)); // Padrão 1 ano
-    }
-    // Ex: "Repot every 2-3 years"
-    if (trocaApi.toLowerCase().contains("2-3 years")) {
-      return DateTime.now().add(const Duration(days: 365 * 2)); // 2 anos
-    }
-    // Ex: "every year"
-    if (trocaApi.toLowerCase().contains("year")) {
-      return DateTime.now().add(const Duration(days: 365)); // 1 ano
-    }
-    // Padrão genérico
-    return DateTime.now().add(const Duration(days: 365)); // 1 ano
-  }
-
-  //
-  // --- FIM DAS FUNÇÕES DE MAPEAMENTO ---
-  //
 
   @override
   Widget build(BuildContext context) {
-    String titulo = widget.plantaParaEditar != null ? 'Editar Planta' : 'Cadastrar Nova Planta';
-    
+    final titulo =
+        widget.plantaParaEditar == null ? 'Nova Planta' : 'Editar Planta';
+
     return Scaffold(
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: Text(titulo),
+        backgroundColor: const Color(0xFF1C1C1E),
       ),
       body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // 1. BOTÃO DE RECONHECIMENTO (COM LOADING)
-              ElevatedButton.icon(
-                icon: _estaIdentificando 
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Icon(Icons.camera_alt_outlined),
-                label: Text(_estaIdentificando ? 'Identificando...' : 'Identificar por Foto'),
-                onPressed: _estaIdentificando ? null : _identificarPlanta, // <--- Chamada à função da API
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  backgroundColor: Colors.green[700],
-                  foregroundColor: Colors.white,
-                ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            // Botão identificar por foto
+            ElevatedButton.icon(
+              icon: _identificando
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child:
+                          CircularProgressIndicator(color: Colors.white),
+                    )
+                  : const Icon(Icons.camera_alt_outlined),
+              label: Text(
+                  _identificando ? 'Identificando...' : 'Identificar por Foto'),
+              onPressed: _identificando ? null : _identificarPlanta,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00C676),
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(50)),
               ),
-              const SizedBox(height: 20), // Espaçamento
+            ),
+            const SizedBox(height: 24),
 
-              // 2. CAMPOS DO FORMULÁRIO (LISTA ÚNICA)
-              TextField(
-                controller: _nomeController,
-                decoration: const InputDecoration(labelText: 'Nome da Planta (Apelido)'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _especieController,
-                decoration: const InputDecoration(labelText: 'Espécie (Ex: Samambaia)'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _regaController,
-                decoration: const InputDecoration(labelText: 'Frequência de Rega (a cada x dias)'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _solController,
-                decoration: const InputDecoration(labelText: 'Horas de Sol (por dia)'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 20),
+            // Cards com inputs
+            _inputCard(Icons.local_florist, 'Nome da Planta', _nome),
+            _inputCard(Icons.eco_outlined, 'Espécie', _especie),
+            _inputCard(Icons.water_drop_outlined,
+                'Frequência de Rega (dias)', _rega,
+                type: TextInputType.number),
+            _inputCard(Icons.wb_sunny_outlined,
+                'Horas de Sol (por dia)', _sol,
+                type: TextInputType.number),
 
-              if (_dataProximaRega != null && _dataProximaRega!.isAfter(DateTime(1971)))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
+            const SizedBox(height: 16),
+
+            // Próximos cuidados
+            Card(
+              color: const Color(0xFF1C1C1E),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Próximo Lembrete de Rega Em:', 
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue)),
-                    Text(
-                      ' ${_formatadorData.format(_dataProximaRega!)}',
-                      style: const TextStyle(fontSize: 18, color: Colors.blueGrey),
+                    const Text(
+                      'Próximos cuidados',
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white),
                     ),
-                    Text(
-                      '(Baseado em ${widget.plantaParaEditar!.frequenciaRega} dias)',
-                      style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic),
+                    const SizedBox(height: 12),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.grass,
+                          color: Color(0xFF00C676)),
+                      title: const Text('Próxima adubação',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: Text(
+                        _adubacao == null
+                            ? 'Não definido'
+                            : _fmt.format(_adubacao!),
+                        style:
+                            const TextStyle(color: Colors.white70),
+                      ),
+                      trailing: TextButton(
+                        onPressed: () =>
+                            _selecionarData(isAdubacao: true),
+                        child: const Text('Escolher',
+                            style:
+                                TextStyle(color: Color(0xFF00C676))),
+                      ),
+                    ),
+                    const Divider(color: Colors.white12),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.landscape,
+                          color: Color(0xFF00C676)),
+                      title: const Text('Troca de terra',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: Text(
+                        _trocaTerra == null
+                            ? 'Não definido'
+                            : _fmt.format(_trocaTerra!),
+                        style:
+                            const TextStyle(color: Colors.white70),
+                      ),
+                      trailing: TextButton(
+                        onPressed: () =>
+                            _selecionarData(isAdubacao: false),
+                        child: const Text('Escolher',
+                            style:
+                                TextStyle(color: Color(0xFF00C676))),
+                      ),
                     ),
                   ],
                 ),
               ),
+            ),
 
-              // 3. SELETORES DE DATA/HORA
-              const Text('Próximos Cuidados:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
+            const SizedBox(height: 24),
 
-              // Seletor de Adubação
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _dataAdubacao == null
-                        ? 'Próxima adubação:'
-                        : 'Adubar em: ${_formatadorData.format(_dataAdubacao!)}',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  TextButton(
-                    onPressed: () => _selecionarData(context, isAdubacao: true),
-                    child: const Text('Selecionar Data e Hora'),
-                  ),
-                ],
+            // Botão salvar
+            ElevatedButton(
+              onPressed: _salvar,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00C676),
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(50)),
               ),
-
-              // Seletor de Troca de Terra
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _dataTrocaTerra == null
-                        ? 'Próxima troca de terra:'
-                        : 'Trocar terra em: ${_formatadorData.format(_dataTrocaTerra!)}',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  TextButton(
-                    onPressed: () => _selecionarData(context, isAdubacao: false),
-                    child: const Text('Selecionar Data e Hora'),
-                  ),
-                ],
+              child: const Text(
+                'Salvar Planta',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
-
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _salvarPlanta,
-                child: const Text('Salvar'),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
-}
 
-
-// -------------------------------------------------------------------
-// DETALHES DA PLANTA
-// -------------------------------------------------------------------
-
-// Em seu main.dart, substitua a classe DetalhePlantaPage:
-
-class DetalhePlantaPage extends StatelessWidget {
-  final Planta planta;
-  const DetalhePlantaPage({super.key, required this.planta});
-
-  @override
-  Widget build(BuildContext context) {
-    // Usamos o formatador de data e hora para exibir corretamente
-    final DateFormat formatadorDataHora = DateFormat('dd/MM/yyyy HH:mm'); 
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(planta.nome),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _inputCard(IconData icon, String label,
+      TextEditingController controller,
+      {TextInputType type = TextInputType.text}) {
+    return Card(
+      color: const Color(0xFF1C1C1E),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
           children: [
-            Text(
-              'Espécie: ${planta.especie}',
-              style: TextStyle(
-                  fontSize: 18,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey[700]),
-            ),
-
-            const SizedBox(height: 20),
-
-            // NOVO CAMPO: Próxima Rega Automática
-            const Text(
-              'Próxima Rega:', // O título que você pode mudar
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              planta.proximaRega.isAfter(DateTime(1971))
-                  ? formatadorDataHora.format(planta.proximaRega)
-                  : 'Rega não especificada', // Se a frequência for 0, mostra isso
-              style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.blue[700]),
-            ),
-            const SizedBox(height: 20),
-
-
-            // Regar a Cada (Frequência)
-            const Text(
-              'Frequência:', // Mudei o título para ser mais claro
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              planta.frequenciaRega > 0
-                  ? '${planta.frequenciaRega} dias'
-                  : 'Não definida',
-              style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.blue[700]),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Necessidade de Sol
-            const Text(
-              'Necessidade de sol:',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              planta.horasSol > 0
-                  ? '${planta.horasSol} horas por dia'
-                  : 'Não especificado',
-              style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.orange[700]),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Próxima Adubação (com hora)
-            const Text(
-              'Próxima Adubação:',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              planta.proximaAdubacao.isAfter(DateTime(1971))
-                  ? formatadorDataHora.format(planta.proximaAdubacao)
-                  : 'Não especificado',
-              style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.brown[700]),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Próxima Troca de Terra (com hora)
-            const Text(
-              'Próxima Troca de Terra:',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              planta.proximaTrocaTerra.isAfter(DateTime(1971))
-                  ? formatadorDataHora.format(planta.proximaTrocaTerra)
-                  : 'Não especificado',
-              style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.black87),
+            Icon(icon, color: const Color(0xFF00C676), size: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                keyboardType: type,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: label,
+                  labelStyle: const TextStyle(color: Colors.white70),
+                  border: InputBorder.none,
+                ),
+              ),
             ),
           ],
         ),
