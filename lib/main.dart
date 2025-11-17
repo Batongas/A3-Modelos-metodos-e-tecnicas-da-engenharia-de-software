@@ -1,5 +1,5 @@
 // --------------------------------------------------------------
-// 🌿 DIGITAL GARDEN — UI MODERNA + FUNCIONALIDADES
+// 🌿 Jardim Digital — UI MODERNA + FUNCIONALIDADES
 // --------------------------------------------------------------
 
 import 'package:flutter/material.dart';
@@ -162,7 +162,7 @@ class MeuApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Digital Garden',
+      title: 'Jardim Digital',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -326,7 +326,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Digital Garden')),
+      appBar: AppBar(title: const Text('Jardim Digital')),
       body: IndexedStack(
         index: _selectedIndex,
         children: [
@@ -415,13 +415,6 @@ class _HomePageState extends State<HomePage> {
           ),
           const SizedBox(height: 10),
 
-          const Text(
-            'Quarto crescente',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
           ),
           const SizedBox(height: 16),
 
