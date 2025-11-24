@@ -1,4 +1,4 @@
-name: digital_garden
+name: viva_verde
 description: "A new Flutter project."
 publish_to: 'none'
 version: 0.1.0
@@ -11,10 +11,16 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  flutter_local_notifications: ^17.1.2 # <-- ADICIONE ESTA
+  timezone: ^0.9.3                  # <-- ADICIONE ESTA (necessária para agendar)
+
+  # ... outros pacotes
+  http: ^1.2.1        # Verifique se o número da versão está correto
+  image_picker: ^1.1.2 # Verifique se o número da versão está correto
 
   cupertino_icons: ^1.0.2
   shared_preferences: ^2.2.3
-  intl: ^0.19.0
+  intl: 0.20.2
 
 dev_dependencies:
   flutter_test:
